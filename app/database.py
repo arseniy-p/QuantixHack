@@ -9,7 +9,7 @@ load_dotenv()
 
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
-DB_HOST = "postgres_voicebot_svc"
+DB_HOST = "postgres-voicebot-svc"
 DB_PORT = "5432"
 DB_NAME = os.getenv("POSTGRES_DB")
 

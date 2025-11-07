@@ -20,7 +20,7 @@ config = context.config
 
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
-DB_HOST = "postgres_voicebot_svc" # Имя сервиса из docker-compose
+DB_HOST = "postgres-voicebot-svc" # Имя сервиса из docker-compose
 DB_PORT = "5432"
 DB_NAME = os.getenv("POSTGRES_DB")
 

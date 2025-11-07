@@ -4,7 +4,8 @@ import json
 import os
 import httpx
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, HTTPException, Response, BackgroundTasks
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -23,55 +24,66 @@ def get_db():
     finally:
         db.close()
 
+TELNYX_API_KEY = os.getenv("TELNYX_API_KEY")
+TELNYX_API_BASE_URL = "https://api.telnyx.com/v2"
+HEADERS = {
+    "Authorization": f"Bearer {TELNYX_API_KEY}",
+    "Content-Type": "application/json",
+}
+
+async def send_telnyx_command(call_control_id: str, command: str, params: dict = {}):
+    """Асинхронно отправляет команду в Telnyx Call Control API."""
+    url = f"{TELNYX_API_BASE_URL}/calls/{call_control_id}/actions/{command}"
+    async with httpx.AsyncClient() as client:
+        try:
+            print(f"--> Sending command '{command}' to Telnyx for call {call_control_id} with params: {params}")
+            response = await client.post(url, headers=HEADERS, json=params)
+            response.raise_for_status()
+            print(f"<-- Successfully sent command '{command}'. Response: {response.json()}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            print(f"!!! HTTP ERROR sending command '{command}': {e.response.status_code} - {e.response.text}")
+        except Exception as e:
+            print(f"!!! UNEXPECTED ERROR sending command '{command}': {e}")
+
 # --- Webhooks by Telnyx ---
 
 @app.post("/webhook/voice")
-async def voice_webhook(request: Request, db: Session = Depends(get_db)):
+async def voice_webhook(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     try:
         data = await request.json()
         payload = data.get("data", {}).get("payload", {})
         event_type = data.get("data", {}).get("event_type")
         
+        print(f"--- Webhook Received: {event_type} ---")
+        
+        call_control_id = payload.get("call_control_id")
+        if not call_control_id:
+            return Response(status_code=200)
+
         if event_type == "call.initiated":
-            # Сохраняем информацию о звонке в БД
-            new_call = models.Call(
-                call_control_id=payload["call_control_id"],
-                call_sid=payload["call_session_id"],
-                direction=payload["direction"],
-                from_number=payload["from"],
-                to_number=payload["to"],
-            )
+            new_call = models.Call()
+            new_call.call_control_id = payload["call_control_id"]
+            new_call.call_sid = payload["call_session_id"]
+            new_call.direction = payload["direction"]
+            new_call.from_number = payload["from"]
+            new_call.to_number = payload["to"]
             db.add(new_call)
             db.commit()
-            print(f"Call {payload['call_control_id']} initiated and saved to DB.")
+            print(f"Call {call_control_id} initiated and saved.")
 
-            # --- ИСПРАВЛЕННЫЙ ФОРМАТ КОМАНД ---
-            call_control_id = payload["call_control_id"]
-            commands = [
-                {
-                    "jsonrpc": "2.0",
-                    "method": "call.answer",
-                    "params": {"call_control_id": call_control_id}
-                },
-                {
-                    "jsonrpc": "2.0",
-                    "method": "call.record_start",
-                    "params": {
-                        "call_control_id": call_control_id,
-                        "format": "mp3",
-                        "channels": "single"
-                    }
-                },
-                {
-                    "jsonrpc": "2.0",
-                    "method": "call.stream_start",
-                    "params": {
-                        "call_control_id": call_control_id,
-                        "stream_url": f"wss://{os.getenv('PUBLIC_HOST')}/ws/{call_control_id}"
-                    }
-                }
-            ]
-            return commands
+            # В фоновом режиме отправляем команду "answer"
+            background_tasks.add_task(send_telnyx_command, call_control_id, "answer")
+
+        elif event_type == "call.answered":
+            print(f"Call {call_control_id} was answered. Starting stream and recording.")
+            
+            # В фоновом режиме отправляем команды для стриминга и записи
+            stream_params = {"stream_url": f"wss://{os.getenv('PUBLIC_HOST')}/ws/{call_control_id}"}
+            record_params = {"format": "mp3", "channels": "single"}
+            
+            background_tasks.add_task(send_telnyx_command, call_control_id, "streaming_start", stream_params)
+            background_tasks.add_task(send_telnyx_command, call_control_id, "record_start", record_params)
 
         elif event_type == "call.hangup":
             call = db.query(models.Call).filter_by(call_control_id=payload["call_control_id"]).first()
@@ -103,10 +115,13 @@ async def voice_webhook(request: Request, db: Session = Depends(get_db)):
                     db.commit()
                     print(f"Failed to process recording: {e}")
 
+        return JSONResponse(content=[], media_type="application/json")
+
     except Exception as e:
-        print(f"!!! ERROR in webhook: {e}")
-        # В случае ошибки возвращаем HTTP 500, чтобы было видно в логах
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"!!! MAJOR ERROR in webhook handler: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response(status_code=500)
 
 # --- WebSocket for Real-time audio ---
 

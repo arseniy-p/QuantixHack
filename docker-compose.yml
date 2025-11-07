@@ -1,8 +1,9 @@
-# docker-compose.yml
+# /home/vb/QuantixHackathon/docker-compose.yml
+
 services:
-  postgres_voicebot_svc:
+  postgres-voicebot-svc:
     image: postgres:15
-    container_name: postgres_voicebot_container
+    container_name: quantix-postgres-container 
     restart: unless-stopped
     env_file: .env
     environment:
@@ -12,18 +13,18 @@ services:
     volumes:
       - postgres_voicebot_vol:/var/lib/postgresql/data
     ports:
-      - "5442:5432"
+      - "5442:5432" 
     networks:
       - backend_voicebot_internal
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  minio-voicebot-svc:
+  minio-voicebot-svc: 
     image: minio/minio:latest
-    container_name: minio-voicebot-container
+    container_name: quantix-minio-container 
     restart: unless-stopped
     env_file: .env
     environment:
@@ -33,7 +34,7 @@ services:
     volumes:
       - minio_voicebot_vol:/data
     ports:
-      - "9010:9000"
+      - "9010:9000" 
       - "9011:9001"
     networks:
       - backend_voicebot_internal
@@ -43,8 +44,9 @@ services:
       timeout: 5s
       retries: 5
 
-  create_buckets_svc:
+  create-buckets-svc: 
     image: minio/mc
+    container_name: quantix-create-buckets-container 
     depends_on:
       minio-voicebot-svc:
         condition: service_healthy
@@ -55,48 +57,43 @@ services:
     networks:
       - backend_voicebot_internal
 
-  migrations_voicebot_svc:
+  migrations-voicebot-svc: 
     build: .
-    container_name: migrations_voicebot_container
+    container_name: quantix-migrations-container 
     env_file: .env
     depends_on:
-      postgres_voicebot_svc:
+      postgres-voicebot-svc:
         condition: service_healthy
-    command: >
-      sh -c "uv run alembic upgrade head"
+    command: "uv run alembic upgrade head"
     volumes:
       - .:/app
     restart: "no"
     networks:
       - backend_voicebot_internal
 
-  backend_voicebot_svc:
+  backend-voicebot-svc: 
     build: .
-    container_name: backend_voicebot-container
+    container_name: quantix-backend-container 
     env_file: .env
     depends_on:
-      postgres_voicebot_svc:
+      postgres-voicebot-svc:
         condition: service_healthy
       minio-voicebot-svc:
         condition: service_healthy
     volumes:
       - .:/app
-      - ./audio_chunks:/app/audio_chunks
     ports:
-      - "8011:8000"
+      - "8011:8000" 
     restart: unless-stopped
-    environment:
-      - VIRTUAL_HOST=${PUBLIC_HOST}
-      - VIRTUAL_PORT=8000
-      - LETSENCRYPT_HOST=${PUBLIC_HOST}
-      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     networks:
-      - backend_voicebot_internal
-      - proxy-tier
+      - backend_voicebot_internal 
+      - proxy-tier              
 
 volumes:
-  postgres_voicebot_vol: {}
-  minio_voicebot_vol: {}
+  postgres_voicebot_vol:
+    name: quantix_postgres_vol
+  minio_voicebot_vol:
+    name: quantix_minio_vol
 
 networks:
   backend_voicebot_internal:
