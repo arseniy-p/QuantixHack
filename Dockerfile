@@ -21,6 +21,7 @@ COPY . .
 
 COPY .env .env
 
+RUN mkdir -p /app/audio_chunks && chmod 777 /app/audio_chunks
 
 EXPOSE 8000
 

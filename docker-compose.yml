@@ -81,6 +81,7 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
+      - ./audio_chunks:/app/audio_chunks
     ports:
       - "8011:8000"
     restart: unless-stopped

@@ -12,7 +12,7 @@ class CallStatus(str, enum.Enum):
     FAILED = "failed"
 
 class CallDirection(str, enum.Enum):
-    INBOUND = "inbound"
+    INBOUND = "incoming"
     OUTBOUND = "outbound"
 
 class RecordingStatus(str, enum.Enum):
