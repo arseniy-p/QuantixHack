@@ -1,0 +1,104 @@
+# docker-compose.yml
+services:
+  postgres_voicebot_svc:
+    image: postgres:15
+    container_name: postgres_voicebot_container
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_voicebot_vol:/var/lib/postgresql/data
+    ports:
+      - "5442:5432"
+    networks:
+      - backend_voicebot_internal
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio-voicebot-svc:
+    image: minio/minio:latest
+    container_name: minio-voicebot-container
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_voicebot_vol:/data
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    networks:
+      - backend_voicebot_internal
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  create_buckets_svc:
+    image: minio/mc
+    depends_on:
+      minio-voicebot-svc:
+        condition: service_healthy
+    env_file: .env
+    entrypoint: >
+      /bin/sh -c " /usr/bin/mc alias set minio http://minio-voicebot-svc:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}; /usr/bin/mc mb minio/${MINIO_BUCKET_NAME} --ignore-existing; /usr/bin/mc policy set public minio/${MINIO_BUCKET_NAME}; exit 0; "
+    restart: "no"
+    networks:
+      - backend_voicebot_internal
+
+  migrations_voicebot_svc:
+    build: .
+    container_name: migrations_voicebot_container
+    env_file: .env
+    depends_on:
+      postgres_voicebot_svc:
+        condition: service_healthy
+    command: >
+      sh -c "uv run alembic upgrade head"
+    volumes:
+      - .:/app
+    restart: "no"
+    networks:
+      - backend_voicebot_internal
+
+  backend_voicebot_svc:
+    build: .
+    container_name: backend_voicebot-container
+    env_file: .env
+    depends_on:
+      postgres_voicebot_svc:
+        condition: service_healthy
+      minio-voicebot-svc:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    ports:
+      - "8011:8000"
+    restart: unless-stopped
+    environment:
+      - VIRTUAL_HOST=${PUBLIC_HOST}
+      - VIRTUAL_PORT=8000
+      - LETSENCRYPT_HOST=${PUBLIC_HOST}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
+    networks:
+      - backend_voicebot_internal
+      - proxy-tier
+
+volumes:
+  postgres_voicebot_vol: {}
+  minio_voicebot_vol: {}
+
+networks:
+  backend_voicebot_internal:
+    driver: bridge
+  proxy-tier:
+    external: true
