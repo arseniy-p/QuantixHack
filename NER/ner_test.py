@@ -39,7 +39,7 @@ async def query_claims_api(search_text: str):
 # --------------------------------------------------------------------------
 def setup_nlp_rules():
     print("Loading NLP model for API keyword extraction...")
-    nlp = spacy.load("en_core_web_md")
+    nlp = spacy.load("en_core_web_sm")
     print("Model ready.")
     return nlp
 
