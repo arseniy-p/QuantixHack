@@ -48,3 +48,5 @@ dmypy.json
 
 #Secrets
 .env
+
+/audio_chunks

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional
 
+
 class TranscriptSchema(BaseModel):
     id: int
     speaker: str
@@ -11,6 +12,7 @@ class TranscriptSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class CallSchema(BaseModel):
     id: int
