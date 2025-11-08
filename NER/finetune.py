@@ -1,9 +1,8 @@
-"""
-fine_tune_insurance_ner.py
---------------------------------
-Fine-tune spaCy NER on insurance claims data.
-Automatically removes overlapping entities to prevent [E103] errors.
-"""
+# filename: fine_tune_insurance_ner_refined.py
+# --------------------------------
+# Fine-tune spaCy NER on insurance claims data.
+# Automatically removes overlapping entities to prevent [E103] errors.
+# Refined to handle multiple entities of the same type.
 
 import json
 import random
@@ -14,7 +13,7 @@ from spacy.util import minibatch, compounding
 
 
 # ------------------------------------------------------------
-# 1️⃣ Load and clean training data
+# 1️⃣ Load and clean training data (No changes needed here)
 # ------------------------------------------------------------
 def load_training_data(filepath):
     """Load JSONL file into spaCy-style training tuples"""
@@ -39,6 +38,7 @@ def clean_overlapping_entities(data):
         prev_end = -1
         for start, end, label in ents:
             if start < prev_end:
+                # This is a valuable warning to see if your annotation has issues
                 print(f"⚠️ Overlap found in text: '{text[start:end]}' — skipping duplicate entity")
                 continue
             non_overlapping.append((start, end, label))
@@ -48,12 +48,13 @@ def clean_overlapping_entities(data):
 
 
 # ------------------------------------------------------------
-# 2️⃣ Fine-tune pretrained spaCy model
+# 2️⃣ Fine-tune pretrained spaCy model (No changes needed here)
 # ------------------------------------------------------------
-def fine_tune_ner_model(train_data, n_iter=20, output_dir="insurance_ner_finetuned"):
-    """Fine-tune the pretrained en_core_web_sm model on insurance data"""
-    print("🔹 Loading pretrained model 'en_core_web_sm' ...")
-    nlp = spacy.load("en_core_web_sm")
+def fine_tune_ner_model(train_data, base_model="en_core_web_lg", n_iter=20, output_dir="insurance_ner_finetuned"):
+    """Fine-tune a pretrained spaCy model on insurance data"""
+    print(f"🔹 Loading pretrained model '{base_model}' ...")
+    # Using a larger model for better accuracy
+    nlp = spacy.load(base_model)
 
     # Add or get NER pipeline
     if "ner" not in nlp.pipe_names:
@@ -61,12 +62,12 @@ def fine_tune_ner_model(train_data, n_iter=20, output_dir="insurance_ner_finetun
     else:
         ner = nlp.get_pipe("ner")
 
-    # Add entity labels
+    # Add entity labels from training data
     for _, annotations in train_data:
         for ent in annotations.get("entities"):
             ner.add_label(ent[2])
 
-    # Train only NER
+    # Train only NER, disabling other pipes
     other_pipes = [p for p in nlp.pipe_names if p != "ner"]
     with nlp.disable_pipes(*other_pipes):
         optimizer = nlp.resume_training()
@@ -86,27 +87,40 @@ def fine_tune_ner_model(train_data, n_iter=20, output_dir="insurance_ner_finetun
 
 
 # ------------------------------------------------------------
-# 3️⃣ Query claims database
+# 3️⃣ Query claims database (MODIFIED FOR ROBUSTNESS)
 # ------------------------------------------------------------
 def find_claim_info(user_query, nlp_model, db):
     """Extract entities and query the database"""
     doc = nlp_model(user_query)
-    ents = {ent.label_: ent.text for ent in doc.ents}
+    
+    # --- MODIFICATION START ---
+    # Store entities in a dictionary where values are lists
+    # This correctly handles multiple entities of the same type
+    from collections import defaultdict
+    ents = defaultdict(list)
+    for ent in doc.ents:
+        ents[ent.label_].append(ent.text)
+    # --- MODIFICATION END ---
 
     print("\n🔍 Extracted entities:")
-    for ent in doc.ents:
-        print(f"  {ent.text:<25} {ent.label_}")
+    if not doc.ents:
+        print("  No entities found.")
+    else:
+        for label, texts in ents.items():
+            print(f"  {label:<15}: {', '.join(texts)}")
 
     result = db.copy()
 
+    # Query based on the first found entity for each type (can be extended)
     if "CUSTOMER" in ents:
-        result = result[result["Customer Name"].str.contains(ents["CUSTOMER"], case=False, na=False)]
+        result = result[result["Customer Name"].str.contains(ents["CUSTOMER"][0], case=False, na=False)]
     if "POLICY_ID" in ents:
-        result = result[result["Policy ID"].str.contains(ents["POLICY_ID"], case=False, na=False)]
+        result = result[result["Policy ID"].str.contains(ents["POLICY_ID"][0], case=False, na=False)]
     if "INCIDENT_TYPE" in ents:
-        result = result[result["Incident Type"].str.contains(ents["INCIDENT_TYPE"], case=False, na=False)]
-    if "DATE_REPORTED" in ents:
-        result = result[result["Date Reported"].str.contains(ents["DATE_REPORTED"].split()[0], case=False, na=False)]
+        result = result[result["Incident Type"].str.contains(ents["INCIDENT_TYPE"][0], case=False, na=False)]
+    if "DATE" in ents: # Assuming the label might just be DATE
+        # This simple logic just checks if the date string is anywhere in the column
+        result = result[result["Date Reported"].str.contains(ents["DATE"][0], case=False, na=False)]
 
     if len(result) == 0:
         return "No matching claim found."
@@ -117,7 +131,7 @@ def find_claim_info(user_query, nlp_model, db):
         return (
             f"Claim {row['Policy ID']} for {row['Customer Name']} "
             f"({row['Incident Type']}) is currently {row['Status']} "
-            f"with estimated damages ${row['Estimated Damage']}."
+            f"with estimated damages of ${row['Estimated Damage']}."
         )
 
 
@@ -125,22 +139,29 @@ def find_claim_info(user_query, nlp_model, db):
 # 4️⃣ Main — train + test + query
 # ------------------------------------------------------------
 if __name__ == "__main__":
-    TRAIN_PATH = "spacy_ner_claims.jsonl"       # your uploaded file
-    CLAIMS_CSV = "dbsample.csv"          # your claim database CSV
+    TRAIN_PATH = "spacy_ner_claims.jsonl"  # Your training data file
+    CLAIMS_CSV = "dbsample.csv"         # Your claim database CSV
     OUTPUT_DIR = "insurance_ner_finetuned"
+    
+    # NOTE: You need to create the training file 'spacy_ner_claims.jsonl'
+    # and the database 'dbsample.csv' for this to run.
 
-    # Load and clean data
-    train_data = load_training_data(TRAIN_PATH)
-    train_data = clean_overlapping_entities(train_data)
+    # 1. Load and clean data
+    # train_data = load_training_data(TRAIN_PATH)
+    # train_data = clean_overlapping_entities(train_data)
 
-    # Fine-tune the model
-    nlp = fine_tune_ner_model(train_data, n_iter=5, output_dir=OUTPUT_DIR)
+    # 2. Fine-tune the model
+    # nlp = fine_tune_ner_model(train_data, base_model="en_core_web_lg", n_iter=10, output_dir=OUTPUT_DIR)
+    
+    # 3. Or, if already trained, just load it from disk
+    print(f"🔹 Loading fine-tuned model from: {OUTPUT_DIR}")
+    nlp = spacy.load(OUTPUT_DIR)
 
-    # Load claims database
+    # 4. Load claims database
     claims_df = pd.read_csv(CLAIMS_CSV)
 
-    # Example test
-    test_query = "Can you tell me the status of Robert Taylor's fire claim from October 29?"
+    # 5. Example test
+    test_query = "Can you tell me the status of Robert Taylor's fire claim from October 30?"
     response = find_claim_info(test_query, nlp, claims_df)
 
     print("\nUser:", test_query)

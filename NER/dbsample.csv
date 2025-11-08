@@ -1,9 +1,9 @@
 Policy ID,Customer Name,Date Reported,Incident Date,Incident Type,Description,Location,Status,Estimated Damage,Approved Amount,Agent Notes
-POL-001,John Smith,2024-10-15 09:30,2024-10-15,Auto Accident,Rear-ended at red light. Bumper and trunk damage.,Main St & 5th Ave,Approved,3500,3200,Minor damage. Approved after photos reviewed.
-POL-002,Maria Garcia,2024-10-20 14:15,2024-10-19,Water Damage,Pipe burst in basement during cold snap. Significant water damage to flooring.,Customer's home address,Under Review,8500,,Adjuster scheduled for 10/23
-POL-004,Sarah Johnson,2024-09-05 08:00,2024-09-05,Auto Accident,Hit deer on rural highway. Front end damage.,Highway 101 mile marker 43,Paid,5200,5200,Comprehensive claim. Paid out 9/12.
-POL-007,James Wilson,2024-10-28 11:45,2024-10-27,Theft,Tools stolen from truck bed overnight.,Work site parking lot,Submitted,2800,,Police report filed. Awaiting verification.
-POL-003,David Chen,2024-08-12 16:20,2024-08-10,Medical,Emergency room visit for broken ankle.,St. Mary's Hospital,Paid,4500,3200,In-network. Patient responsibility: $2500 deductible + copay.
-POL-009,Robert Taylor,2024-10-30 10:00,2024-10-29,Fire,Kitchen fire from unattended stove. Damage to kitchen cabinets and appliances.,Customer's home address,Under Review,15000,,Fire department report received. Investigating.
-POL-001,John Smith,2024-07-04 19:30,2024-07-04,Other,Windshield cracked by rock on highway.,Interstate 95,Approved,350,350,Glass-only claim. Approved immediately.
-POL-002,Maria Garcia,2024-11-01 12:00,2024-10-31,Theft,Break-in through back door. TV and laptop stolen.,Customer's home address,Submitted,3200,,Police report on file. Awaiting inventory list.
+POL-001,John Smith,2024-10-15 09:30,2024-10-15,Auto Accident,"Rear-ended at red light. Bumper and trunk damage.","Main St & 5th Ave",Approved,3500,3200,"Minor damage. Approved after photos reviewed."
+POL-002,Maria Garcia,2024-10-20 14:15,2024-10-19,Water Damage,"Pipe burst in basement during cold snap. Significant water damage to flooring.","Customer's home address",Under Review,8500,,Adjuster scheduled for 10/23
+POL-004,Sarah Johnson,2024-09-05 08:00,2024-09-05,Auto Accident,"Hit deer on rural highway. Front end damage.","Highway 101 mile marker 43",Paid,5200,5200,"Comprehensive claim. Paid out 9/12."
+POL-007,James Wilson,2024-10-28 11:45,2024-10-27,Theft,"Tools stolen from truck bed overnight.","Work site parking lot",Submitted,2800,,"Police report filed. Awaiting verification."
+POL-003,David Chen,2024-08-12 16:20,2024-08-10,Medical,"Emergency room visit for broken ankle.","St. Mary's Hospital",Paid,4500,3200,"In-network. Patient responsibility: $2500 deductible + copay."
+POL-009,Robert Taylor,2024-10-30 10:00,2024-10-29,Fire,"Kitchen fire from unattended stove. Damage to kitchen cabinets and appliances.","Customer's home address",Under Review,15000,,"Fire department report received. Investigating."
+POL-001,John Smith,2024-07-04 19:30,2024-07-04,Other,"Windshield cracked by rock on highway.","Interstate 95",Approved,350,350,"Glass-only claim. Approved immediately."
+POL-002,Maria Garcia,2024-11-01 12:00,2024-10-31,Theft,"Break-in through back door. TV and laptop stolen.","Customer's home address",Submitted,3200,,"Police report on file. Awaiting inventory list."
