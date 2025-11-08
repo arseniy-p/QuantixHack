@@ -120,6 +120,20 @@ async def set_latest_call_id_in_redis(redis_client, call_id: str):
             exc_info=True # This will print the full traceback
         )
 
+async def answer_call_background(call_control_id: str):
+    """
+    A robust wrapper for the answer command to run in the background.
+    Includes comprehensive logging for success or failure.
+    """
+    try:
+        logger.info(f"---> Attempting to answer call {call_control_id} in background.")
+        await send_telnyx_command(call_control_id, "answer")
+        logger.info(f"<--- Successfully triggered 'answer' command for call {call_control_id}.")
+    except Exception as e:
+        logger.error(
+            f"!!! FAILED to answer call {call_control_id} in background. This is critical. Error: {e}",
+            exc_info=True
+        )
 
 # --- Webhooks by Telnyx ---
 
@@ -154,7 +168,7 @@ async def voice_webhook(
                 set_latest_call_id_in_redis, redis_client, call_control_id
             )
 
-            background_tasks.add_task(send_telnyx_command, call_control_id, "answer")
+            background_tasks.add_task(answer_call_background, call_control_id)
 
         elif event_type == "call.answered":
             logger.info(
@@ -237,7 +251,6 @@ async def websocket_endpoint(websocket: WebSocket, call_control_id: str):
         redis_client=redis_client 
     )
     await processor.run()
-
 
 # --- REST API for data retrival ---
 

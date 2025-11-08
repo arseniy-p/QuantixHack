@@ -1,0 +1,15 @@
+[project]
+name = "runpod-stt-worker"
+version = "2.0.0"
+requires-python = ">=3.11"
+
+dependencies = [
+    "websockets>=13.0",
+    "RealtimeSTT>=0.3.104",
+    "numpy>=1.24.0",
+    "ctranslate2==4.4.0",  # Совместима с cuDNN 8
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
