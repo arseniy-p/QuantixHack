@@ -14,6 +14,7 @@ from deepgram.extensions.types.sockets import ListenV1SocketClientResponse
 # ### ИЗМЕНЕНИЕ 1: Импортируем новый сервис-агент ###
 from . import agent_service
 
+deepgram_client = AsyncDeepgramClient()
 
 class CallProcessor:
     def __init__(self, call_control_id: str, websocket, redis_client):
@@ -21,8 +22,7 @@ class CallProcessor:
         self.websocket = websocket
         self.redis_client = redis_client
         self.state_channel = f"call_state:{self.call_control_id}"
-        
-        self.deepgram_client = AsyncDeepgramClient()
+        self.deepgram_client = deepgram_client
         
         self.full_transcript = []
         logger.info(f"CallProcessor created for call {self.call_control_id}")

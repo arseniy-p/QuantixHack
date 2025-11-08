@@ -34,40 +34,32 @@ def create_claim(db: Session, claim: schemas.ClaimCreate) -> models.Claim:
 
 def search_claims(db: Session, query: str, customer_phone: Optional[str] = None) -> List[models.Claim]:
     """
-    Performs a full-text search across multiple fields in the claims table.
+    Performs a full-text search across multiple fields in the claims table,
+    optionally filtering by the customer's phone number.
     
     Args:
         db: The SQLAlchemy session.
         query: The search string from NER (e.g., "POL-001 water damage").
-        customer_phone: Optional phone number to filter results for a specific user.
+        customer_phone: The phone number of the caller (e.g., '+15550101') to scope the search.
 
     Returns:
         A list of matching claim records.
     """
     
-    # 1. Sanitize and format the query for to_tsquery
-    # We replace spaces with '&' to search for all words (AND logic)
-    # This is a basic approach; more complex logic can be added here.
     search_terms = query.strip().split()
     formatted_query = " & ".join(search_terms)
 
-    # 2. Build the base SQLAlchemy query using the FTS operator `@@`
-    # The `text()` construct is used to safely pass the FTS functions.
-    # We also rank the results to show the most relevant ones first.
     base_query = (
         db.query(models.Claim)
         .filter(models.Claim.search_vector.op("@@")(func.to_tsquery('simple', formatted_query)))
-        .order_by(func.ts_rank(models.Claim.search_vector, func.to_tsquery('simple', formatted_query)).desc())
     )
 
-    # 3. (Optional but Recommended) Filter by customer if identified
-    # In a real system, you'd link calls to customers. Here we simulate it.
-    # if customer_phone:
-    #     # This assumes you have a way to link phone numbers to customers/policies.
-    #     # For this example, we'll filter by a field if it exists.
-    #     # You might need to add a 'customer_phone' field to your Claim model
-    #     pass
+    if customer_phone:
+        base_query = base_query.filter(models.Claim.customer_phone == customer_phone)
 
-    # 4. Execute and return results
-    results = base_query.limit(10).all() # Limit to top 10 relevant results
+    ordered_query = base_query.order_by(
+        func.ts_rank(models.Claim.search_vector, func.to_tsquery('simple', formatted_query)).desc()
+    )
+
+    results = ordered_query.limit(10).all()
     return results

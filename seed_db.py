@@ -5,20 +5,18 @@ from faker import Faker
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
 import logging
+import re 
 
-# Import your models and database engine
 from app.models import Base, Claim, ClaimStatus, PolicyType
 from app.database import engine, SessionLocal
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Faker
 fake = Faker()
 
 
-def create_random_claim(customer_id, customer_name, policy_id):
+def create_random_claim(customer_id, customer_name, policy_id, customer_phone):
     """Generates a single random insurance claim."""
 
     policy_type = random.choice(list(PolicyType))
@@ -29,10 +27,7 @@ def create_random_claim(customer_id, customer_name, policy_id):
     estimated_damage = round(random.uniform(250.0, 25000.0), 2)
     approved_amount = None
     if status in [ClaimStatus.APPROVED, ClaimStatus.PAID, ClaimStatus.CLOSED]:
-        # Approved amount is usually slightly less than estimated
-        approved_amount = round(
-            estimated_damage * random.uniform(0.75, 1.0), 2
-        )
+        approved_amount = round(estimated_damage * random.uniform(0.75, 1.0), 2)
     
     agent_notes = ""
     if status == ClaimStatus.UNDER_REVIEW:
@@ -47,10 +42,10 @@ def create_random_claim(customer_id, customer_name, policy_id):
 
     # Incident types based on policy type
     incident_type_map = {
-        PolicyType.AUTO: ["Auto Accident", "Vandalism", "Theft", "Hail Damage", "Windshield Crack"],
-        PolicyType.HOME: ["Water Damage", "Fire", "Burglary", "Storm Damage"],
-        PolicyType.MEDICAL: ["ER Visit", "Scheduled Surgery", "Physical Therapy", "Prescription Claim"],
-        PolicyType.THEFT: ["Vehicle Break-in", "Home Burglary", "Stolen Package"]
+        PolicyType.AUTO: ["Auto Accident", "Vandalism", "Theft", "Hail Damage"],
+        PolicyType.HOME: ["Water Damage", "Fire", "Burglary"],
+        PolicyType.MEDICAL: ["ER Visit", "Scheduled Surgery"],
+        PolicyType.THEFT: ["Vehicle Break-in", "Home Burglary"]
     }
     
     incident_type = random.choice(incident_type_map[policy_type])
@@ -71,40 +66,43 @@ def create_random_claim(customer_id, customer_name, policy_id):
         approved_amount=approved_amount,
         assigned_adjuster=fake.name() if random.choice([True, False]) else None,
         agent_notes=agent_notes,
+        customer_phone=customer_phone,
     )
 
 
 def seed_database(num_entries=100):
     """Seeds the database with a specified number of claims."""
-    # Use SessionLocal to get a session, as you do in your FastAPI app
     db = SessionLocal()
     try:
         logger.info("Starting to seed the database...")
-
-        # --- MODIFICATION ---
-        # Instead of dropping the table, just delete existing data.
-        # This is safer and respects the schema managed by Alembic.
         num_deleted = db.query(Claim).delete()
         if num_deleted > 0:
             logger.info(f"Deleted {num_deleted} existing claims.")
 
-        # Generate some consistent customer data
+        # ИЗМЕНЕНИЕ: Добавляем номера телефонов для каждого клиента.
+        # Используем чистый формат E.164, который Telnyx присылает по умолчанию.
         customers = [
-            {"id": 101, "name": "John Smith", "policy_id_prefix": "POL"},
-            {"id": 102, "name": "Maria Garcia", "policy_id_prefix": "POL"},
-            {"id": 103, "name": "David Chen", "policy_id_prefix": "HPC"},
-            {"id": 104, "name": "Sarah Johnson", "policy_id_prefix": "AUT"},
-            {"id": 105, "name": "James Wilson", "policy_id_prefix": "BUS"},
+            {"id": 101, "name": "John Smith", "policy_id_prefix": "POL", "phone": "+15550101"},
+            {"id": 102, "name": "Maria Garcia", "policy_id_prefix": "POL", "phone": "+15550102"},
+            {"id": 103, "name": "David Chen", "policy_id_prefix": "HPC", "phone": "+15550103"},
+            {"id": 104, "name": "Sarah Johnson", "policy_id_prefix": "AUT", "phone": "+15550104"},
+            {"id": 105, "name": "James Wilson", "policy_id_prefix": "BUS", "phone": "+15550105"},
+            # Добавим одного клиента с двумя полисами, но одним номером
+            {"id": 106, "name": "Emily White", "policy_id_prefix": "AUT", "phone": "+15550106"},
+            {"id": 107, "name": "Emily White", "policy_id_prefix": "HPC", "phone": "+15550106"},
         ]
 
         claims_to_add = []
         for i in range(num_entries):
             customer = random.choice(customers)
             policy_id = f"{customer['policy_id_prefix']}-{random.randint(1000, 9999)}"
+            
+            # ИЗМЕНЕНИЕ: Передаем номер телефона в функцию создания
             new_claim = create_random_claim(
                 customer_id=customer["id"],
                 customer_name=customer["name"],
                 policy_id=policy_id,
+                customer_phone=customer["phone"]
             )
             claims_to_add.append(new_claim)
 
@@ -118,7 +116,5 @@ def seed_database(num_entries=100):
     finally:
         db.close()
 
-
 if __name__ == "__main__":
-    # The script will now connect using the same DATABASE_URL env var as the app
     seed_database(num_entries=120)

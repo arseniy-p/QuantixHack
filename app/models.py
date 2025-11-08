@@ -110,6 +110,8 @@ class Claim(Base):
     
     search_vector = Column(TSVECTOR, nullable=True)
 
+    customer_phone = Column(String, index=True, nullable=True)
+
 
     def __repr__(self):
         return f"<Claim(policy_id='{self.policy_id}', status='{self.status}')>"
