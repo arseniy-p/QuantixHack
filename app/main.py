@@ -25,6 +25,8 @@ from .logger_config import logger
 from .call_processor import CallProcessor
 from . import crud
 
+import redis.asyncio as redis
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -44,6 +46,30 @@ HEADERS = {
     "Authorization": f"Bearer {TELNYX_API_KEY}",
     "Content-Type": "application/json",
 }
+
+@app.get("/test-redis")
+async def test_redis_connection():
+    """A simple endpoint to test writing and reading from Redis."""
+    try:
+        test_key = "test_key"
+        test_value = datetime.now().isoformat()
+        
+        logger.info(f"--- Testing Redis Connection ---")
+        await redis_client.set(test_key, test_value)
+        logger.info(f"Successfully wrote to Redis: {{'{test_key}': '{test_value}'}}")
+        
+        retrieved_value = await redis_client.get(test_key)
+        logger.info(f"Successfully read from Redis: '{retrieved_value}'")
+
+        if retrieved_value == test_value:
+            return {"status": "SUCCESS", "message": "Redis connection is working perfectly."}
+        else:
+            return {"status": "FAILURE", "message": "Read/write values do not match."}
+            
+    except Exception as e:
+        logger.error(f"!!! Redis connection test failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Redis connection failed: {e}")
+
 
 
 async def send_telnyx_command(call_control_id: str, command: str, params: dict = {}):
@@ -65,6 +91,34 @@ async def send_telnyx_command(call_control_id: str, command: str, params: dict =
             )
         except Exception as e:
             logger.error(f"!!! UNEXPECTED ERROR sending command '{command}': {e}")
+
+
+redis_client = None
+
+@app.on_event("startup")
+async def startup_event():
+    global redis_client
+    redis_client = redis.Redis(
+        host='redis-voicebot-svc',
+        port=6379,
+        password=os.getenv('REDIS_PASSWORD'), # <-- Добавьте пароль
+        decode_responses=True
+    )
+
+
+async def set_latest_call_id_in_redis(redis_client, call_id: str):
+    """
+    Safely sets the latest call ID in Redis with logging and error handling.
+    """
+    try:
+        logger.info(f"---> Setting 'latest_call_id' in Redis: {call_id}")
+        await redis_client.set("latest_call_id", call_id)
+        logger.info(f"<--- Successfully set 'latest_call_id' in Redis.")
+    except Exception as e:
+        logger.error(
+            f"!!! FAILED to set 'latest_call_id' in Redis. Streamlit will not work. Error: {e}",
+            exc_info=True # This will print the full traceback
+        )
 
 
 # --- Webhooks by Telnyx ---
@@ -95,6 +149,10 @@ async def voice_webhook(
             db.add(new_call)
             db.commit()
             logger.info(f"Call {call_control_id} initiated and saved.")
+
+            background_tasks.add_task(
+                set_latest_call_id_in_redis, redis_client, call_control_id
+            )
 
             background_tasks.add_task(send_telnyx_command, call_control_id, "answer")
 
@@ -173,10 +231,12 @@ async def websocket_endpoint(websocket: WebSocket, call_control_id: str):
     await websocket.accept()
     logger.info(f"WebSocket connection accepted for call: {call_control_id}")
 
-    processor = CallProcessor(call_control_id=call_control_id, websocket=websocket)
+    processor = CallProcessor(
+        call_control_id=call_control_id,
+        websocket=websocket,
+        redis_client=redis_client 
+    )
     await processor.run()
-
-    logger.info(f"Finished WebSocket handling for call: {call_control_id}")
 
 
 # --- REST API for data retrival ---

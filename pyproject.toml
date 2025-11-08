@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "aioredis>=2.0.1",
     "alembic>=1.17.1",
     "boto3>=1.40.68",
     "deepgram-sdk>=5.3.0",
@@ -14,7 +15,9 @@ dependencies = [
     "psycopg2-binary>=2.9.11",
     "pydantic==2.7.4",
     "python-dotenv>=1.2.1",
+    "redis>=7.0.1",
     "sqlalchemy>=2.0.44",
+    "streamlit>=1.51.0",
     "uvicorn[standard]>=0.38.0",
     "websockets>=15.0.1",
 ]
