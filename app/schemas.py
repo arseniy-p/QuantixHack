@@ -2,6 +2,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional
+from .models import ClaimStatus, PolicyType
 
 
 class TranscriptSchema(BaseModel):
@@ -28,3 +29,35 @@ class CallSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ClaimBase(BaseModel):
+    policy_id: str
+    customer_name: str
+    incident_date: datetime
+    incident_type: str
+    policy_type: PolicyType
+    description: str
+    location: str
+    status: ClaimStatus
+    estimated_damage: float
+    approved_amount: Optional[float] = None
+    assigned_adjuster: Optional[str] = None
+    agent_notes: Optional[str] = None
+
+
+class ClaimCreate(ClaimBase):
+    pass
+
+
+class ClaimSchema(ClaimBase):
+    id: int
+    customer_id: Optional[int] = None
+    date_reported: datetime
+    last_updated: datetime
+
+    class Config:
+        from_attributes = True
+
+class ClaimSearchQuery(BaseModel):
+    text: str

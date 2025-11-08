@@ -23,6 +23,7 @@ from .database import SessionLocal, engine
 from .s3_client import upload_file_to_s3
 from .logger_config import logger
 from .call_processor import CallProcessor
+from . import crud
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -194,3 +195,48 @@ def get_call_details(call_id: int, db: Session = Depends(get_db)):
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
     return call
+
+@app.post("/claims/search", response_model=List[schemas.ClaimSchema])
+def search_for_claims(query: schemas.ClaimSearchQuery, db: Session = Depends(get_db)):
+    """
+    Real-time search endpoint for the voicebot.
+    Receives keywords from NER and uses FTS to find relevant claims.
+    """
+    logger.info(f"Searching for claims with query: '{query.text}'")
+    # In a real scenario, you'd also pass the user's phone number from the call record
+    claims = crud.search_claims(db=db, query=query.text)
+    if not claims:
+        logger.warning(f"No claims found for query: '{query.text}'")
+        # You can return a 404, but for a voicebot, an empty list is often better
+        # raise HTTPException(status_code=404, detail="No claims found")
+    return claims
+
+
+# --- Standard CRUD endpoints for administration/testing ---
+
+@app.post("/claims/", response_model=schemas.ClaimSchema)
+def create_new_claim(claim: schemas.ClaimCreate, db: Session = Depends(get_db)):
+    """
+    Create a new claim.
+    """
+    return crud.create_claim(db=db, claim=claim)
+
+
+@app.get("/claims/", response_model=List[schemas.ClaimSchema])
+def read_all_claims(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Retrieve all claims with pagination.
+    """
+    claims = crud.get_all_claims(db, skip=skip, limit=limit)
+    return claims
+
+
+@app.get("/claims/{claim_id}", response_model=schemas.ClaimSchema)
+def read_single_claim(claim_id: int, db: Session = Depends(get_db)):
+    """
+    Retrieve a single claim by its ID.
+    """
+    db_claim = crud.get_claim_by_id(db, claim_id=claim_id)
+    if db_claim is None:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    return db_claim
