@@ -9,7 +9,7 @@ from openai import AsyncOpenAI # CHANGED: Import the new AsyncOpenAI client
 # NEW: Instantiate the client with the API key.
 # The client automatically reads the OPENAI_API_KEY environment variable.
 client = AsyncOpenAI()
-LLM_MODEL = "gpt-4" # Or "gpt-3.5-turbo" for faster, less expensive responses
+LLM_MODEL = "gpt-4-turbo" # Or "gpt-3.5-turbo" for faster, less expensive responses
 
 # --- THIS IS THE SECTION YOU WILL EDIT FOR PROMPT ENGINEERING ---
 SYSTEM_PROMPT = """

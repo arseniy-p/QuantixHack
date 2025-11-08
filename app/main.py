@@ -27,6 +27,8 @@ from . import crud
 
 import redis.asyncio as redis
 
+from . import agent_service
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -196,6 +198,8 @@ async def voice_webhook(
                 call.status = models.CallStatus.COMPLETED
                 call.end_time = datetime.now()
                 db.commit()
+
+            background_tasks.add_task(agent_service.cleanup_call_resources, call_control_id)
 
         elif event_type == "call.recording.saved":
             call = (

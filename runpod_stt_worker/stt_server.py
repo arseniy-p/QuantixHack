@@ -1,4 +1,4 @@
-# runpod_stt_worker/stt_server.py (ПРАВИЛЬНАЯ ВЕРСИЯ с RealtimeSTT)
+# runpod_stt_worker/stt_server.py (НОВАЯ, ИСПРАВЛЕННАЯ ВЕРСЯ)
 
 import asyncio
 import websockets
@@ -8,8 +8,8 @@ import logging
 from RealtimeSTT import AudioToTextRecorder
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
-from queue import Queue
 import time
+import numpy as np
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -17,6 +17,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- Health Check Server (без изменений) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/health':
@@ -24,12 +25,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok"}).encode('utf-8'))
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def log_message(self, format, *args):
-        pass
+        else: self.send_response(404); self.end_headers()
+    def log_message(self, format, *args): pass
 
 def run_health_check_server():
     server_address = ('', 8080)
@@ -38,48 +35,93 @@ def run_health_check_server():
     httpd.serve_forever()
 
 
+# --- ИЗМЕНЕНИЕ: Теперь сессия сама управляет своим recorder'ом ---
 class RealtimeSTTSession:
-    """
-    Обертка для одной сессии транскрипции.
-    Использует глобальный recorder, но управляет состоянием индивидуально.
-    """
-    
-    def __init__(self, websocket, recorder):
+    def __init__(self, websocket):
         self.websocket = websocket
-        self.recorder = recorder
+        self.recorder = None
         self.is_active = True
         self.last_transcript = ""
         self.transcript_lock = threading.Lock()
         
+        # ### ИЗМЕНЕНИЕ 1: Запоминаем event loop при создании сессии ###
+        # Мы находимся в `stt_handler`, который является async, поэтому здесь loop точно есть.
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.error("Could not get running event loop. This should not happen in stt_handler.")
+            self.loop = None
+
+    def _initialize_recorder(self):
+        """Инициализация recorder'а для этой конкретной сессии."""
+        logger.info("🔥 Initializing new RealtimeSTT recorder for session...")
+        try:
+            self.recorder = AudioToTextRecorder(
+                model=os.getenv("MODEL_SIZE", "medium.en"),
+                language="en",
+                device="cuda",
+                gpu_device_index=0,
+                compute_type="float16",
+                use_microphone=False,
+                spinner=False,
+                enable_realtime_transcription=True,
+                realtime_model_type="tiny.en",
+                realtime_processing_pause=0.1,
+                
+                # ### ФИНАЛЬНАЯ КОНФИГУРАЦИЯ VAD ###
+                
+                # WebRTC VAD: 0 - самый чувствительный режим. Пропустит почти всё.
+                webrtc_sensitivity=0,
+                
+                # Silero VAD: 0.8 - очень высокая чувствительность.
+                silero_sensitivity=0.8,
+                
+                # Включаем обратно внутренний VAD faster-whisper.
+                # Это позволит ему самому найти речь в том потоке, что пропустит Silero/WebRTC.
+                # Это исправляет ошибку 'No clip timestamps found'.
+                faster_whisper_vad_filter=True, 
+                
+                # Остальные параметры
+                silero_use_onnx=True,
+                post_speech_silence_duration=0.8, # Немного увеличим, чтобы не обрывать фразы
+                min_length_of_recording=0.4,      # Немного уменьшим для коротких ответов
+                level=logging.WARNING
+            )
+            self.recorder.on_transcription_finished = self.on_transcription
+            self.recorder.on_realtime_transcription_update = self.on_realtime_update
+            self.recorder.start()
+            logger.info("✅ Recorder initialized and worker thread started.")
+        except Exception as e:
+            logger.error(f"Failed to initialize recorder for session: {e}", exc_info=True)
+            raise
+
     def on_transcription(self, text):
-        """Callback для финальных транскрипций"""
-        if not self.is_active:
-            return
-            
+        if not self.is_active or not self.loop: return
         text = text.strip()
-        if not text:
-            return
-            
+        if not text: return
         logger.info(f"📝 Final transcript: '{text}'")
         
-        # Отправляем асинхронно
-        asyncio.create_task(self._send_transcript(text, is_final=True))
+        # ### ИЗМЕНЕНИЕ 2: Используем потокобезопасный метод для вызова async из sync ###
+        asyncio.run_coroutine_threadsafe(
+            self._send_transcript(text, is_final=True),
+            self.loop
+        )
     
     def on_realtime_update(self, text):
-        """Callback для промежуточных транскрипций"""
-        if not self.is_active:
-            return
-            
+        if not self.is_active or not self.loop: return
         text = text.strip()
-        
-        # Отправляем только если текст изменился
         with self.transcript_lock:
             if text and text != self.last_transcript:
                 self.last_transcript = text
-                asyncio.create_task(self._send_transcript(text, is_final=False))
-    
+                
+                # ### ИЗМЕНЕНИЕ 3: И здесь тоже используем потокобезопасный метод ###
+                asyncio.run_coroutine_threadsafe(
+                    self._send_transcript(text, is_final=False),
+                    self.loop
+                )
+
+    # Эта функция остается async, так как ее вызывает run_coroutine_threadsafe
     async def _send_transcript(self, text, is_final):
-        """Отправка транскрипции клиенту"""
         try:
             message = {
                 "type": "transcript" if is_final else "interim_transcript",
@@ -91,211 +133,61 @@ class RealtimeSTTSession:
             logger.error(f"Error sending transcript: {e}")
     
     def feed_audio(self, audio_chunk):
-        """Передача аудио в recorder"""
-        if self.is_active:
-            try:
-                self.recorder.feed_audio(audio_chunk)
-            except Exception as e:
-                logger.error(f"Error feeding audio: {e}")
+        if self.is_active and self.recorder:
+            self.recorder.feed_audio(audio_chunk)
     
     def stop(self):
-        """Остановка сессии"""
         self.is_active = False
+        if self.recorder:
+            try:
+                self.recorder.shutdown()
+                logger.info("Recorder shutdown completed.")
+            except Exception as e:
+                logger.error(f"Error during recorder shutdown: {e}")
         with self.transcript_lock:
             self.last_transcript = ""
 
 
-class GlobalRecorderManager:
-    """
-    Менеджер глобального recorder'а.
-    Создает один recorder при старте и переиспользует его для всех соединений.
-    """
-    
-    def __init__(self):
-        self.recorder = None
-        self.lock = threading.Lock()
-        self._initialize_recorder()
-    
-    def _initialize_recorder(self):
-        """Инициализация и прогрев модели"""
-        logger.info("🔥 Initializing RealtimeSTT recorder (this may take a minute)...")
-        
-        model_size = os.getenv("MODEL_SIZE", "medium.en")
-        
-        try:
-            self.recorder = AudioToTextRecorder(
-                model=model_size,
-                language="en",
-                device="cuda",
-                gpu_device_index=0,
-                compute_type="float16",
-                use_microphone=False,  # ВАЖНО: не используем микрофон
-                spinner=False,
-                
-                # Параметры для реалтайм транскрипции
-                enable_realtime_transcription=True,
-                realtime_model_type="tiny.en",  # Быстрая модель для промежуточных результатов
-                realtime_processing_pause=0.1,  # Обновление каждые 100ms
-                
-                # VAD настройки
-                silero_sensitivity=0.4,
-                silero_use_onnx=True,
-                silero_deactivity_detection=True,
-                webrtc_sensitivity=3,
-                
-                # Тайминги
-                post_speech_silence_duration=0.7,  # 700ms тишины = конец фразы
-                min_length_of_recording=0.5,
-                min_gap_between_recordings=0.3,
-                pre_recording_buffer_duration=0.3,
-                
-                # Производительность
-                beam_size=5,
-                beam_size_realtime=3,
-                
-                # Логирование
-                level=logging.INFO,
-                no_log_file=True,
-            )
-            
-            logger.info("✅ RealtimeSTT recorder initialized successfully")
-            
-            # Прогрев модели тестовым аудио (1 секунда тишины)
-            logger.info("🔥 Warming up model with test audio...")
-            import numpy as np
-            warmup_audio = np.zeros(16000, dtype=np.int16).tobytes()
-            self.recorder.feed_audio(warmup_audio)
-            time.sleep(2)
-            logger.info("✅ Model warmed up and ready")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize recorder: {e}", exc_info=True)
-            raise
-    
-    def create_session(self, websocket):
-        """Создает новую сессию для клиента"""
-        with self.lock:
-            return RealtimeSTTSession(websocket, self.recorder)
-
-
-# Глобальный менеджер (создается один раз при старте)
-recorder_manager = None
-
+# --- ИЗМЕНЕНИЕ: Убираем GlobalRecorderManager ---
 
 async def stt_handler(websocket):
-    """Обработчик WebSocket соединений"""
+    """Обработчик WebSocket соединений. Теперь он проще."""
     client_addr = websocket.remote_address
     logger.info(f"🔌 Client connected from {client_addr}")
     
-    session = None
+    # Создаем сессию, она пока пустая
+    session = RealtimeSTTSession(websocket)
     
     try:
-        # Создаем сессию для этого клиента
-        session = recorder_manager.create_session(websocket)
+        # Инициализируем recorder ВНУТРИ сессии
+        session._initialize_recorder()
         
-        # Устанавливаем callbacks для этой сессии
-        session.recorder.on_transcription_finished = session.on_transcription
-        session.recorder.on_realtime_transcription_update = session.on_realtime_update
-        
-        # Отправляем подтверждение готовности
-        model_info = {
-            "type": "ready",
-            "model": os.getenv("MODEL_SIZE", "medium.en"),
-            "realtime_model": "tiny.en"
-        }
-        await websocket.send(json.dumps(model_info))
+        await websocket.send(json.dumps({ "type": "ready", "model": os.getenv("MODEL_SIZE", "medium.en") }))
         logger.info(f"✅ Session ready for {client_addr}")
         
-        # Обрабатываем входящие аудио чанки
         async for message in websocket:
             if isinstance(message, bytes):
-                # Передаем аудио в recorder
                 session.feed_audio(message)
-            else:
-                logger.warning(f"Received non-binary message: {message[:100]}")
-        
-        logger.info(f"Client {client_addr} closed connection normally")
         
     except websockets.exceptions.ConnectionClosed as e:
-        logger.info(f"Client {client_addr} disconnected: {e.code} - {e.reason}")
+        logger.info(f"Client {client_addr} disconnected: {e.code}")
     except Exception as e:
         logger.error(f"Error handling client {client_addr}: {e}", exc_info=True)
-        try:
-            await websocket.close(1011, f"Server error: {str(e)[:100]}")
-        except:
-            pass
     finally:
-        # Останавливаем сессию
-        if session:
-            session.stop()
+        session.stop()
         logger.info(f"🔌 Cleaned up session for {client_addr}")
 
 
 async def main():
-    """Запуск серверов"""
-    global recorder_manager
-    
-    # Диагностика окружения
-    logger.info("=" * 60)
-    logger.info("System Diagnostics")
-    logger.info("=" * 60)
-    
-    try:
-        import torch
-        logger.info(f"PyTorch version: {torch.__version__}")
-        logger.info(f"CUDA available: {torch.cuda.is_available()}")
-        if torch.cuda.is_available():
-            logger.info(f"CUDA version: {torch.version.cuda}")
-            logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
-    except Exception as e:
-        logger.error(f"Error checking PyTorch: {e}")
-    
-    try:
-        import ctranslate2
-        logger.info(f"ctranslate2 version: {ctranslate2.__version__}")
-    except Exception as e:
-        logger.error(f"Error checking ctranslate2: {e}")
-    
-    try:
-        import subprocess
-        result = subprocess.run(
-            ['ldconfig', '-p'],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        cudnn_libs = [line.strip() for line in result.stdout.split('\n') if 'cudnn' in line.lower()]
-        logger.info(f"cuDNN libraries found: {len(cudnn_libs)}")
-        for lib in cudnn_libs[:5]:  # Показываем первые 5
-            logger.info(f"  {lib}")
-    except Exception as e:
-        logger.warning(f"Could not check cuDNN libraries: {e}")
-    
-    logger.info("=" * 60)
-    
-    # Инициализируем глобальный recorder
-    recorder_manager = GlobalRecorderManager()
-    
-    # Health check в отдельном потоке
     health_thread = threading.Thread(target=run_health_check_server, daemon=True)
     health_thread.start()
     
-    # WebSocket сервер
     port = int(os.getenv("WS_PORT", "8765"))
-    
-    async with websockets.serve(
-        stt_handler,
-        "0.0.0.0",
-        port,
-        ping_interval=30,
-        ping_timeout=10,
-        max_size=10 * 1024 * 1024  # 10MB
-    ):
+    async with websockets.serve(stt_handler, "0.0.0.0", port):
         logger.info(f"🚀 RealtimeSTT WebSocket Server running on ws://0.0.0.0:{port}")
-        logger.info(f"📊 Model: {os.getenv('MODEL_SIZE', 'medium.en')}")
-        logger.info(f"💾 Using CUDA for acceleration")
-        await asyncio.Future()  # Run forever
-
+        await asyncio.Future()
 
 if __name__ == "__main__":
+    # Небольшая задержка перед стартом, чтобы дать RunPod инициализироваться
+    time.sleep(3)
     asyncio.run(main())
