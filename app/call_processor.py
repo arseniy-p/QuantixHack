@@ -103,16 +103,18 @@ class CallProcessor:
             
             # Connect to Deepgram v1 with async context manager
             async with self.deepgram_client.listen.v1.connect(
-                model="nova-3", # Optimized for phone calls
+                model="nova-2-phonecall", # Optimized for phone calls
                 language="en-US", 
                 encoding="mulaw",          # Audio format from Telnyx
                 sample_rate=8000,          # 8kHz sample rate from Telnyx
                 channels=1,                # Mono audio
                 interim_results=True,      # CRITICAL: Enable interim results for real-time feedback
-                utterance_end_ms="1000",   # Detect end of utterance after 1 second of silence
+                utterance_end_ms="1500",   # Detect end of utterance after 1 second of silence
                 smart_format=True,         # Add punctuation and formatting
                 vad_events=True,
-                endpointing=300
+                endpointing=300,
+                numerals=True,
+                keywords=["POL:5"]
             ) as connection:
                 
                 logger.info("Deepgram connection context entered")
