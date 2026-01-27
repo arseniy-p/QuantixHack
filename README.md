@@ -6,8 +6,6 @@ This project is a fully-featured, real-time AI voice assistant named **Eva**, de
 
 The project serves as a robust template for building modern voicebots, combining an asynchronous architecture, best-in-class cloud AI services, and reliable state management.
 
-*(It is recommended to insert a screenshot of your working Streamlit dashboard here)*
-
 ## Core Features
 
 *   **Real-Time Conversation:** Low-latency audio stream processing using **Deepgram Nova-2**.
